@@ -1,0 +1,168 @@
+pipeline {
+    agent any
+
+    options {
+        skipDefaultCheckout()
+    }
+
+    environment {
+        NODE_VERSION = "v22.14.0"
+        NPM_VERSION = "10.9.2"
+    }
+
+    parameters {
+        string(name: 'SERVICE_NAME', defaultValue: 'starpay-npg', description: 'Service Name')
+        string(name: 'APP_PORT', defaultValue: '19938', description: 'Port on which the service runs')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Select environment for deployment')
+        choice(name: 'BRANCH_NAME', choices: ['dev', 'staging', 'main'], description: 'Select the branch to deploy')
+    }
+
+    stages {
+        stage('Set Environment Variables') {
+            steps {
+                script {
+                    def envSuffix = params.ENVIRONMENT.toUpperCase()
+                    def deployHostCredentialId = "DEPLOY_HOST_${envSuffix}"
+                    def deployUserCredentialId = "DEPLOY_USER_${envSuffix}"
+                    def deploySshKeyCredentialId = "DEPLOY_SSH_KEY_${envSuffix}"
+                    def deployPortCredentialId = "DEPLOY_SSH_PORT_${envSuffix}"
+
+                    def deployDirMap = [
+                        'dev': '/home/ubuntu/starpay',
+                        'staging': '/staging',
+                        'production': '/prod'
+                    ]
+                    env.DEPLOY_DIR = deployDirMap[params.ENVIRONMENT] ?: '/var/www/microservices/default'
+
+                    withCredentials([
+                        string(credentialsId: deployHostCredentialId, variable: 'DEPLOY_HOST'),
+                        string(credentialsId: deployUserCredentialId, variable: 'DEPLOY_USER'),
+                        string(credentialsId: deployPortCredentialId, variable: 'DEPLOY_PORT'),
+                        sshUserPrivateKey(credentialsId: deploySshKeyCredentialId, keyFileVariable: 'SSH_KEY')
+                    ]) {
+                        env.DEPLOY_HOST = DEPLOY_HOST
+                        env.DEPLOY_USER = DEPLOY_USER
+                        env.DEPLOY_PORT = DEPLOY_PORT
+                        env.SSH_KEY_ID = deploySshKeyCredentialId
+                        env.NODE_ENV = params.ENVIRONMENT
+
+                        echo "Deploying to ${params.ENVIRONMENT} environment using branch ${params.BRANCH_NAME}"
+                        echo "Deploy Directory: ${env.DEPLOY_DIR}"
+                        echo "Deploy Host: ${env.DEPLOY_HOST}"
+                        echo "Deploy User: ${env.DEPLOY_USER}"
+                        echo "SSH Key ID: ${env.SSH_KEY_ID}"
+                    }
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                git branch: "${params.BRANCH_NAME}", credentialsId: 'gitlab_access', url: 'https://gitlab.com/eyuel1/star-pay-npg-ms.git'
+            }
+        }
+
+        stage('Transfer Files to Remote Server') {
+            steps {
+                script {
+                    withCredentials([sshUserPrivateKey(credentialsId: "${env.SSH_KEY_ID}", keyFileVariable: 'SSH_KEY')]) {
+                        sh """
+                        echo "🔄 Ensuring remote directory exists..."
+                        ssh -p ${env.DEPLOY_PORT} -i $SSH_KEY -o StrictHostKeyChecking=no ${env.DEPLOY_USER}@${env.DEPLOY_HOST} \
+                        "mkdir -p ${env.DEPLOY_DIR}/${params.SERVICE_NAME} && touch ${env.DEPLOY_DIR}/${params.SERVICE_NAME}/.env"
+
+                        echo "🚀 Transferring files to remote server..."
+                        rsync -avz --info=progress2  \
+                        --exclude='.env' \
+                        --exclude='node_modules' \
+                        -e "ssh -p ${DEPLOY_PORT} -i $SSH_KEY -o StrictHostKeyChecking=no" \
+                        $WORKSPACE/ ${env.DEPLOY_USER}@${env.DEPLOY_HOST}:${env.DEPLOY_DIR}/${params.SERVICE_NAME}/
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Install Dependencies & Restart PM2') {
+            steps {
+                script {
+                    withCredentials([sshUserPrivateKey(credentialsId: "${env.SSH_KEY_ID}", keyFileVariable: 'SSH_KEY')]) {
+                        sh """
+                        echo "🔄 Deploying ${params.SERVICE_NAME} on remote server..."
+                        ssh -p ${env.DEPLOY_PORT} -i $SSH_KEY -o StrictHostKeyChecking=no ${env.DEPLOY_USER}@${env.DEPLOY_HOST} /bin/bash << 'REMOTE_SCRIPT'
+                        set -e
+                        set -o pipefail
+
+                        SERVICE_DIR="${env.DEPLOY_DIR}/${params.SERVICE_NAME}"
+                        cd \$SERVICE_DIR || { echo "❌ Failed to change directory to \$SERVICE_DIR"; exit 1; }
+                        cp ../../.env . 
+                        echo "⚡ Loading NVM and Node.js environment..."
+                        export NVM_DIR="\$HOME/.nvm"
+                        [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
+                        nvm use ${env.NODE_VERSION}
+
+                        echo "✅ Node.js Version: \$(node -v)"
+                        echo "✅ npm Version: \$(npm -v)"
+
+                        echo "📦 Checking for package-lock.json..."
+                        if [ -f "package-lock.json" ]; then
+                            echo "✅ package-lock.json found. Running npm ci..."
+                            npm ci
+                        else
+                            echo "⚠️ package-lock.json missing. Running npm install..."
+                            npm install
+                        fi
+
+                        pwd
+
+                        echo "🔄 Restarting PM2 process..."
+                        if pm2 describe ${params.SERVICE_NAME} >/dev/null 2>&1; then
+                            echo "✅ Service exists. Reloading..."
+                            pm2 reload ${params.SERVICE_NAME}
+                        else
+                            echo "⚠️ Service not found. Starting it..."
+                            pm2 start ecosystem.config.js --name ${params.SERVICE_NAME} --env ${env.NODE_ENV}
+                        fi
+
+                        pm2 save
+
+                        echo "🔍 Checking if service is running on port ${params.APP_PORT}..."
+
+                        RETRY_COUNT=0
+                        MAX_RETRIES=8
+                        SUCCESS=0
+                        while [ \$RETRY_COUNT -lt \$MAX_RETRIES ]; do
+                            if lsof -i :${params.APP_PORT} >/dev/null 2>&1; then
+                                echo "✅ ${params.SERVICE_NAME} is running on port ${params.APP_PORT}."
+                                SUCCESS=1
+                                break
+                            else
+                                echo "❌ ${params.SERVICE_NAME} is not running on port ${params.APP_PORT}. Retrying..."
+                                RETRY_COUNT=\$((RETRY_COUNT+1))
+                                sleep 5
+                            fi
+                        done
+
+                        if [ \$SUCCESS -eq 0 ]; then
+                            echo "❌ Service failed to start after \$MAX_RETRIES attempts." >&2
+                            exit 1
+                        fi
+
+                        echo "✅ Deployment completed successfully at \$(date)"
+REMOTE_SCRIPT
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment successful for ${params.SERVICE_NAME}!"
+        }
+        failure {
+            echo "❌ Deployment failed for ${params.SERVICE_NAME}. Check logs."
+        }
+    }
+}
