@@ -20,7 +20,6 @@ A modern, responsive React + TypeScript frontend for a Google Drive-inspired fil
   - Only see your own files/folders
 - **Responsive UI**
   - Mobile & desktop friendly
-  - Sidebar with burger menu on mobile
 - **Modern UX**
   - Skeleton loaders, error handling, instant UI updates
 
