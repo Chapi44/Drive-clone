@@ -1,11 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { 
-  LuSearch, 
-  LuCircleHelp, 
-  LuSettings, 
-  LuLayoutGrid, 
+  LuSearch,  
   LuSlidersHorizontal,
-  LuCircleCheck
+ 
 } from 'react-icons/lu';
 import DriveLogo from '../../assets/pngwing.com.png';
 import ProfileMenu from '../ui/ProfileMenu';
@@ -42,8 +39,8 @@ const Header: React.FC<HeaderProps> = ({ searchValue, onSearchChange, onSearchSu
   return (
     <>
       <header className="flex items-center justify-between px-6 h-16 bg-google-gray-100 border-b border-google-gray-300 relative z-10">
-        <div className="flex items-center gap-2">
-          <img src={DriveLogo} alt="Drive Logo" className="w-10 h-10" />
+        <div className="flex items-center gap-2 ml-9 sm:ml-0">
+          <img src={DriveLogo} alt="Drive Logo" className="w-10 h-10 " />
           <span className="text-google-gray-800 text-2xl font-light">Drive</span>
         </div>
 
@@ -65,18 +62,7 @@ const Header: React.FC<HeaderProps> = ({ searchValue, onSearchChange, onSearchSu
         </div>
 
         <div className="flex items-center gap-2">
-          <button className="p-2 rounded-full hover:bg-google-gray-200">
-              <LuCircleCheck className="w-6 h-6 text-google-gray-700" />
-          </button>
-          <button className="p-2 rounded-full hover:bg-google-gray-200">
-            <LuCircleHelp className="w-6 h-6 text-google-gray-700" />
-          </button>
-          <button className="p-2 rounded-full hover:bg-google-gray-200">
-            <LuSettings className="w-6 h-6 text-google-gray-700" />
-          </button>
-          <button className="p-2 rounded-full hover:bg-google-gray-200">
-            <LuLayoutGrid className="w-6 h-6 text-google-gray-700" />
-          </button>
+
           <button
             onClick={() => setIsProfileMenuOpen(prev => !prev)}
             className="p-2 rounded-full bg-google-gray-500 text-white w-9 h-9 flex items-center justify-center"

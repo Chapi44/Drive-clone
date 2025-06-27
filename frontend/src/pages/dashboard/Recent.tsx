@@ -4,11 +4,15 @@ import recentIllustration from '../../assets/drive-recent-illustration.png';
 import { getFiles } from '../../services/fileService';
 import FileCard, { type FileCardProps } from '../../components/drive/FileCard';
 import FileList from '../../components/drive/FileList';
-import Sidebar from '../../components/layout/Sidebar'; // Add Sidebar
-import Header from '../../components/layout/Header';   // Add Header
-import { LuList, LuLayoutGrid } from 'react-icons/lu'; // For icons
+import Sidebar from '../../components/layout/Sidebar';
+import Header from '../../components/layout/Header';
+import { LuList, LuLayoutGrid, LuMenu, LuSearch, LuSlidersHorizontal } from 'react-icons/lu';
 import Modal from '../../components/ui/Modal';
 import { toggleFileStarred, toggleFolderStarred, renameFile, renameFolder, deleteFile, deleteFolder } from '../../services/fileService';
+import DriveLogo from '../../assets/pngwing.com.png';
+import ProfileMenu from '../../components/ui/ProfileMenu';
+import { getMe } from '../../services/authService';
+import { useNavigate } from 'react-router-dom';
 
 interface FileApiResponse {
   _id: string;
@@ -24,7 +28,16 @@ interface FileApiResponse {
   parentFolder?: string | null;
 }
 
-type FileCardWithId = FileCardProps & { _id?: string };
+interface FileCardWithId extends FileCardProps {
+  _id?: string;
+}
+
+interface UserData {
+  _id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+}
 
 const mapMimetypeToType = (mimetype?: string): FileCardProps['type'] => {
   if (!mimetype) return 'unknown';
@@ -47,6 +60,16 @@ const RecentPage: React.FC = () => {
   const [modalTarget, setModalTarget] = useState<FileCardWithId | null>(null);
   const [newName, setNewName] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  // For mobile sidebar
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [user, setUser] = useState<UserData | null>(null);
+
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewFile, setPreviewFile] = useState<FileCardWithId | null>(null);
+
+  const navigate = useNavigate();
 
   const fetchRecentFiles = async () => {
     setLoading(true);
@@ -74,7 +97,16 @@ const RecentPage: React.FC = () => {
 
   useEffect(() => {
     fetchRecentFiles();
+    // eslint-disable-next-line
   }, [searchKey]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    getMe(token)
+      .then(data => setUser(data))
+      .catch(() => setUser(null));
+  }, []);
 
   const handleStar = async (item: FileCardWithId) => {
     const token = localStorage.getItem('token');
@@ -140,15 +172,105 @@ const RecentPage: React.FC = () => {
     setActionLoading(false);
   };
 
+  const handleFileClick = (file: FileCardWithId) => {
+    if (file.type === 'folder' && file._id) {
+      navigate(`/dashboard/folder/${file._id}`);
+      return;
+    }
+    if (['image', 'video', 'pdf'].includes(file.type)) {
+      setPreviewFile(file);
+      setShowPreviewModal(true);
+      return;
+    }
+    // Optionally handle other file types
+  };
+
+  const avatarLetter = user?.firstName ? user.firstName[0].toUpperCase() : '?';
+  const userEmail = user?.email || '';
+
+  const PreviewModal: React.FC<{ file: FileCardWithId | null; onClose: () => void }> = ({ file, onClose }) => {
+    if (!file) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="bg-white rounded-xl p-6 max-w-2xl w-full relative">
+          <button className="absolute top-2 right-2 text-lg" onClick={onClose}>&times;</button>
+          <h2 className="text-lg font-bold mb-4">{file.name}</h2>
+          {file.type === 'image' && file.url && (
+            <img src={file.url} alt={file.name} className="max-h-96 mx-auto" />
+          )}
+          {file.type === 'video' && file.url && (
+            <video src={file.url} controls className="max-h-96 mx-auto w-full" />
+          )}
+          {file.type === 'pdf' && file.url && (
+            <iframe src={file.url} title={file.name} className="w-full h-96" />
+          )}
+          {(!file.url || (file.type !== 'image' && file.type !== 'video' && file.type !== 'pdf')) && (
+            <div className="text-center text-gray-500">Preview not available</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-screen font-sans bg-white text-google-gray-900">
-      <Header
-        searchValue={searchKey}
-        onSearchChange={setSearchKey}
-        onSearchSubmit={() => {}} // Optionally implement search submit
-      />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
+      {/* Mobile header: burger + Drive logo/text + search + profile */}
+      <div className="relative">
+        <div className="sm:hidden flex flex-col gap-1 px-2 py-2 bg-white border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <button
+              className="p-2 bg-white border border-gray-300 rounded-lg shadow hover:bg-gray-100 transition"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <LuMenu className="w-5 h-5" />
+            </button>
+            <img src={DriveLogo} alt="Drive Logo" className="w-8 h-8" />
+            <span className="text-google-gray-800 text-2xl font-light">Drive</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="relative flex-1">
+              <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-google-gray-700 cursor-pointer" onClick={fetchRecentFiles} />
+              <input
+                type="text"
+                placeholder="Search in Drive"
+                className="w-full bg-google-gray-200/75 rounded-full py-2 pl-10 pr-10 focus:outline-none focus:ring-2 focus:ring-google-blue focus:bg-white text-sm"
+                value={searchKey}
+                onChange={e => setSearchKey(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') fetchRecentFiles();
+                }}
+              />
+              <LuSlidersHorizontal className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-google-gray-700" />
+            </div>
+            <button
+              onClick={() => setIsProfileMenuOpen(prev => !prev)}
+              className="p-2 rounded-full bg-google-gray-500 text-white w-9 h-9 flex items-center justify-center"
+              title={userEmail}
+            >
+              <span className="text-md font-bold">{avatarLetter}</span>
+            </button>
+          </div>
+          <ProfileMenu 
+            isOpen={isProfileMenuOpen}
+            onClose={() => setIsProfileMenuOpen(false)}
+          />
+        </div>
+        {/* Desktop header */}
+        <div className="hidden sm:block">
+          <Header
+            searchValue={searchKey}
+            onSearchChange={setSearchKey}
+            onSearchSubmit={fetchRecentFiles}
+          />
+        </div>
+      </div>
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Burger menu button for mobile */}
+
+        {/* Sidebar (responsive) */}
+        <Sidebar visible={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        {/* Main content, flush with sidebar (no margin on desktop!) */}
         <main className="flex-1 p-6 bg-white overflow-y-auto">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold">Recent Files</h2>
@@ -187,6 +309,7 @@ const RecentPage: React.FC = () => {
                   url={file.url}
                   isStarred={file.isStarred}
                   lastModified={file.lastModified || file.createdAt || ''}
+                  onClick={() => handleFileClick(file)}
                   onStar={() => handleStar(file)}
                   onEdit={() => handleEdit(file)}
                   onDelete={() => handleDelete(file)}
@@ -195,13 +318,19 @@ const RecentPage: React.FC = () => {
             </div>
           ) : (
             <FileList
-              files={files.map((file) => ({
-                ...file,
-                isStarred: file.isStarred,
-                onStar: () => handleStar(file),
-                onEdit: () => handleEdit(file),
-                onDelete: () => handleDelete(file),
-              }))}
+              files={files.map((file) => {
+                const fileWithId = file as FileCardWithId;
+                return {
+                  ...fileWithId,
+                  isStarred: fileWithId.isStarred,
+                  onClick: fileWithId.type === 'folder' && fileWithId._id
+                    ? () => navigate(`/dashboard/folder/${fileWithId._id}`)
+                    : () => handleFileClick(fileWithId),
+                  onStar: () => handleStar(fileWithId),
+                  onEdit: () => handleEdit(fileWithId),
+                  onDelete: () => handleDelete(fileWithId),
+                };
+              })}
             />
           )}
           <Modal isOpen={renameModalOpen} onClose={() => setRenameModalOpen(false)}>
@@ -229,6 +358,7 @@ const RecentPage: React.FC = () => {
               </button>
             </div>
           </Modal>
+          <PreviewModal file={showPreviewModal ? previewFile : null} onClose={() => setShowPreviewModal(false)} />
         </main>
       </div>
     </div>

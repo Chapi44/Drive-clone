@@ -7,9 +7,19 @@ import FileCard from '../../components/drive/FileCard';
 import FileList from '../../components/drive/FileList';
 import UploadEmptyStateUploadArea from '../../components/drive/UploadFileModal';
 import { getFilesInFolder, getFolderTree, type FileOrFolder, type FolderTreeNode } from '../../services/fileService';
-import { LuList, LuLayoutGrid, LuInfo } from 'react-icons/lu';
+import { LuList, LuLayoutGrid, LuInfo, LuMenu, LuSearch, LuSlidersHorizontal } from 'react-icons/lu';
 import Modal from '../../components/ui/Modal';
 import { toggleFileStarred, toggleFolderStarred, renameFile, renameFolder, deleteFile, deleteFolder } from '../../services/fileService';
+import DriveLogo from '../../assets/pngwing.com.png';
+import ProfileMenu from '../../components/ui/ProfileMenu';
+import { getMe } from '../../services/authService';
+
+interface UserData {
+  _id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+}
 
 const mapMimetypeToType = (mimetype?: string) => {
   if (!mimetype) return 'unknown';
@@ -24,9 +34,7 @@ const mapMimetypeToType = (mimetype?: string) => {
 
 const PreviewModal: React.FC<{ file: FileOrFolder | null; onClose: () => void }> = ({ file, onClose }) => {
   if (!file) return null;
-
   const type = mapMimetypeToType(file.mimetype);
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
       <div className="bg-white p-6 rounded-xl max-w-2xl w-full relative">
@@ -49,7 +57,7 @@ const FolderView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchKey, setSearchKey] = useState('');
-  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [view, setView] = useState<'grid' | 'list'>('list');
   const [previewFile, setPreviewFile] = useState<FileOrFolder | null>(null);
   const [breadcrumb, setBreadcrumb] = useState<FileOrFolder[]>([]);
   const navigate = useNavigate();
@@ -58,6 +66,9 @@ const FolderView: React.FC = () => {
   const [modalTarget, setModalTarget] = useState<FileOrFolder | null>(null);
   const [newName, setNewName] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [user, setUser] = useState<UserData | null>(null);
 
   const fetchFiles = async () => {
     if (!folderId) return;
@@ -117,6 +128,12 @@ const FolderView: React.FC = () => {
   useEffect(() => {
     fetchFiles();
     buildBreadcrumb();
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    getMe(token)
+      .then(data => setUser(data))
+      .catch(() => setUser(null));
+    // eslint-disable-next-line
   }, [folderId]);
 
   const handleFileClick = (file: FileOrFolder) => {
@@ -188,15 +205,68 @@ const FolderView: React.FC = () => {
     setActionLoading(false);
   };
 
+  const avatarLetter = user?.firstName ? user.firstName[0].toUpperCase() : '?';
+  const userEmail = user?.email || '';
+
   return (
     <div className="flex flex-col h-screen">
-      <Header
-        searchValue={searchKey}
-        onSearchChange={setSearchKey}
-        onSearchSubmit={fetchFiles}
-      />
-      <div className="flex flex-1">
-        <Sidebar />
+      {/* Mobile header: burger + Drive logo/text + search + profile */}
+      <div className="relative">
+        <div className="sm:hidden flex flex-col gap-1 px-2 py-2 bg-white border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <button
+              className="p-2 bg-white border border-gray-300 rounded-lg shadow hover:bg-gray-100 transition"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <LuMenu className="w-5 h-5" />
+            </button>
+            <img src={DriveLogo} alt="Drive Logo" className="w-8 h-8" />
+            <span className="text-google-gray-800 text-2xl font-light">Drive</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="relative flex-1">
+              <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-google-gray-700 cursor-pointer" onClick={fetchFiles} />
+              <input
+                type="text"
+                placeholder="Search in Drive"
+                className="w-full bg-google-gray-200/75 rounded-full py-2 pl-10 pr-10 focus:outline-none focus:ring-2 focus:ring-google-blue focus:bg-white text-sm"
+                value={searchKey}
+                onChange={e => setSearchKey(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') fetchFiles();
+                }}
+              />
+              <LuSlidersHorizontal className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-google-gray-700" />
+            </div>
+            <button
+              onClick={() => setIsProfileMenuOpen(prev => !prev)}
+              className="p-2 rounded-full bg-google-gray-500 text-white w-9 h-9 flex items-center justify-center"
+              title={userEmail}
+            >
+              <span className="text-md font-bold">{avatarLetter}</span>
+            </button>
+          </div>
+          <ProfileMenu 
+            isOpen={isProfileMenuOpen}
+            onClose={() => setIsProfileMenuOpen(false)}
+          />
+        </div>
+        {/* Desktop header */}
+        <div className="hidden sm:block">
+          <Header
+            searchValue={searchKey}
+            onSearchChange={setSearchKey}
+            onSearchSubmit={fetchFiles}
+          />
+        </div>
+      </div>
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Burger menu button for mobile */}
+
+        {/* Sidebar (responsive) */}
+        <Sidebar visible={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        {/* Main content, flush with sidebar (no margin on desktop!) */}
         <main className="flex-1 p-6 bg-white overflow-y-auto">
           <div className="text-sm text-gray-500 mb-2 flex items-center gap-1">
             {breadcrumb.map((item, idx) => (
