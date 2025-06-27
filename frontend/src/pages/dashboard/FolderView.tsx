@@ -6,7 +6,7 @@ import FolderCard from '../../components/drive/FolderCard';
 import FileCard from '../../components/drive/FileCard';
 import FileList from '../../components/drive/FileList';
 import UploadEmptyStateUploadArea from '../../components/drive/UploadFileModal';
-import { getFiles, getFolderTree, type FileOrFolder, type FolderTreeNode } from '../../services/fileService';
+import { getFilesInFolder, getFolderTree, type FileOrFolder, type FolderTreeNode } from '../../services/fileService';
 import { LuList, LuLayoutGrid, LuInfo } from 'react-icons/lu';
 import Modal from '../../components/ui/Modal';
 import { toggleFileStarred, toggleFolderStarred, renameFile, renameFolder, deleteFile, deleteFolder } from '../../services/fileService';
@@ -66,8 +66,8 @@ const FolderView: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
-      const data = await getFiles({ parentFolder: folderId, searchKey }, token);
-      setFiles(Array.isArray(data.data) ? data.data : []);
+      const data = await getFilesInFolder(folderId, token);
+      setFiles(data.data || []);
     } catch (err: unknown) {
       if (typeof err === 'object' && err && 'message' in err) {
         setError((err as { message?: string }).message || 'Failed to fetch folder content');
@@ -117,7 +117,7 @@ const FolderView: React.FC = () => {
   useEffect(() => {
     fetchFiles();
     buildBreadcrumb();
-  }, [folderId, searchKey]);
+  }, [folderId]);
 
   const handleFileClick = (file: FileOrFolder) => {
     const type = mapMimetypeToType(file.mimetype);
